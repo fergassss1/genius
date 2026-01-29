@@ -4,100 +4,87 @@
     <meta charset="UTF-8">
     <title>genius</title>
     <style>
-        body { font-family: sans-serif; background: #121212; color: #eee; max-width: 800px; margin: 20px auto; padding: 20px; }
-        .card { background: #1e1e1e; padding: 20px; border-radius: 10px; border: 1px solid #333; }
-        input { width: 100%; padding: 12px; margin: 10px 0; border-radius: 5px; border: 1px solid #444; background: #2b2b2b; color: #fff; box-sizing: border-box; }
-        button { padding: 12px 20px; border-radius: 5px; border: none; cursor: pointer; font-weight: bold; }
-        .btn-search { background: #ffff64; color: #000; width: 100%; margin-bottom: 15px; }
-        .btn-copy { background: #444; color: #fff; margin-right: 10px; display: none; margin-bottom: 10px; }
-        .result-item { background: #252525; padding: 10px; margin: 10px 0; border-radius: 5px; cursor: pointer; border: 1px solid transparent; }
+        body { font-family: sans-serif; background: #000; color: #fff; max-width: 600px; margin: 40px auto; padding: 20px; }
+        input { width: 100%; padding: 12px; margin: 8px 0; border-radius: 6px; border: 1px solid #444; background: #111; color: #fff; box-sizing: border-box; }
+        button { padding: 12px; border-radius: 6px; border: none; cursor: pointer; font-weight: bold; width: 100%; margin-bottom: 10px; }
+        .btn-search { background: #ffff64; color: #000; }
+        .btn-copy { background: #333; color: #fff; width: 48%; display: none; }
+        .result-item { background: #1a1a1a; padding: 12px; margin: 8px 0; border-radius: 6px; cursor: pointer; border: 1px solid #333; }
         .result-item:hover { border-color: #ffff64; }
-        #lyrics-output { white-space: pre-wrap; background: #000; padding: 20px; border-radius: 10px; display: none; border: 1px solid #333; margin-top: 20px; }
-        #log { font-family: monospace; font-size: 12px; color: #888; background: #000; padding: 10px; margin-top: 20px; border-radius: 5px; max-height: 100px; overflow-y: auto; }
+        #lyrics-output { white-space: pre-wrap; background: #0a0a0a; padding: 20px; border-radius: 10px; display: none; border: 1px solid #222; margin-top: 20px; font-family: serif; font-size: 1.1em; line-height: 1.6; }
+        #status { color: #888; text-align: center; margin: 10px 0; font-size: 0.9em; }
     </style>
 </head>
 <body>
 
-<div class="card">
-    <h2>Genius Scraper (No Token)</h2>
-    <input type="text" id="songInput" placeholder="Song Name...">
-    <input type="text" id="artistInput" placeholder="Artist Name (Optional)...">
+    <h2>Genius Lyrics Scraper</h2>
+    <input type="text" id="songInput" placeholder="Song Name">
+    <input type="text" id="artistInput" placeholder="Artist Name (Optional)">
     <button class="btn-search" onclick="search()">Search</button>
     
+    <div id="status">Ready</div>
     <div id="results"></div>
 
-    <div id="controls">
+    <div style="display: flex; justify-content: space-between;">
         <button id="btnFull" class="btn-copy" onclick="copy('full')">Copy Full</button>
         <button id="btnClean" class="btn-copy" onclick="copy('clean')">Copy Clean</button>
     </div>
 
     <div id="lyrics-output"></div>
-    
-    <div id="log">Console: Waiting for input...</div>
-</div>
 
 <script>
     let rawLyrics = "";
-    // Using a different proxy that doesn't require a "click to activate" step
-    const PROXY = "https://api.allorigins.win/get?url=";
-
-    function logger(msg) {
-        document.getElementById('log').innerText = "Log: " + msg;
-        console.log(msg);
-    }
+    // Using a "Cross-Origin" proxy to bypass browser security
+    const PROXY = "https://corsproxy.io/?";
 
     async function search() {
         const song = document.getElementById('songInput').value;
         const artist = document.getElementById('artistInput').value;
         if (!song) return;
 
-        logger("Searching...");
+        updateStatus("Searching...");
         const query = encodeURIComponent(`${song} ${artist}`);
-        const target = `https://genius.com/api/search/multi?q=${query}`;
+        const url = `https://genius.com/api/search/multi?q=${query}`;
         
         try {
-            const resp = await fetch(PROXY + encodeURIComponent(target));
-            const json = await resp.json();
-            const data = JSON.parse(json.contents);
+            const response = await fetch(PROXY + encodeURIComponent(url));
+            const data = await response.json();
             const songs = data.response.sections.find(s => s.type === "song").hits;
 
             let html = "";
-            songs.forEach((hit, index) => {
+            songs.forEach(hit => {
                 const s = hit.result;
                 html += `<div class="result-item" onclick="getLyrics('${s.url}')">
-                            <strong>${s.title}</strong> - ${s.artist_names}
+                            <strong>${s.title}</strong><br><small style="color:#888">${s.artist_names}</small>
                          </div>`;
             });
             document.getElementById('results').innerHTML = html;
-            logger("Results loaded.");
+            updateStatus("Select a song below:");
         } catch (e) {
-            logger("Search failed: " + e.message);
+            updateStatus("Search Failed. The proxy might be down.");
+            console.error(e);
         }
     }
 
     async function getLyrics(url) {
-        logger("Fetching lyrics from page...");
+        updateStatus("Scraping lyrics...");
         try {
-            const resp = await fetch(PROXY + encodeURIComponent(url));
-            const json = await resp.json();
-            const html = json.contents;
+            const response = await fetch(PROXY + encodeURIComponent(url));
+            const html = await response.text();
             
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
-            
-            // This targets the specific DIVs used by Genius for lyrics
             const containers = doc.querySelectorAll('[data-lyrics-container="true"]');
+            
             let text = "";
-
             if (containers.length > 0) {
                 containers.forEach(c => {
-                    // Convert <br> to actual newlines
-                    c.innerHTML = c.innerHTML.replace(/<br\s*[\/]?>/gi, "\n");
+                    // Fix line breaks
+                    c.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
                     text += c.textContent + "\n";
                 });
             } else {
-                // Legacy support
-                text = doc.querySelector('.lyrics')?.textContent || "Could not parse lyrics.";
+                text = doc.querySelector('.lyrics')?.textContent || "Could not find lyrics content.";
             }
 
             rawLyrics = text.trim();
@@ -105,12 +92,16 @@
             output.innerText = rawLyrics;
             output.style.display = "block";
             
-            document.getElementById('btnFull').style.display = "inline-block";
-            document.getElementById('btnClean').style.display = "inline-block";
-            logger("Lyrics ready.");
+            document.getElementById('btnFull').style.display = "block";
+            document.getElementById('btnClean').style.display = "block";
+            updateStatus("Lyrics Loaded!");
         } catch (e) {
-            logger("Lyrics failed: " + e.message);
+            updateStatus("Error fetching lyrics.");
         }
+    }
+
+    function updateStatus(msg) {
+        document.getElementById('status').innerText = msg;
     }
 
     function copy(mode) {
@@ -120,11 +111,14 @@
             text = text.replace(/\[.*?\]/g, "").replace(/\n\s*\n/g, "\n\n");
         }
         
-        navigator.clipboard.writeText(text.trim()).then(() => {
-            alert(mode.toUpperCase() + " copied!");
-        });
+        const el = document.createElement('textarea');
+        el.value = text.trim();
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand('copy');
+        document.body.removeChild(el);
+        alert(mode.toUpperCase() + " lyrics copied!");
     }
 </script>
-
 </body>
 </html>
