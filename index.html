@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>genius</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #000; color: #fff; max-width: 700px; margin: 40px auto; padding: 20px; }
+        .search-box { background: #1a1a1a; padding: 20px; border-radius: 12px; border: 1px solid #333; }
+        input { width: 100%; padding: 12px; margin: 10px 0; border-radius: 8px; border: 1px solid #444; background: #222; color: #fff; box-sizing: border-box; }
+        button { padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer; font-weight: bold; transition: 0.3s; }
+        .btn-search { background: #ffff64; color: #000; width: 100%; font-size: 16px; }
+        .btn-copy { background: #333; color: #fff; margin-right: 10px; margin-top: 15px; display: none; }
+        .btn-copy:hover { background: #444; }
+        .result-item { display: flex; align-items: center; padding: 12px; margin-top: 10px; background: #111; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
+        .result-item:hover { border-color: #ffff64; background: #1a1a1a; }
+        .result-item img { width: 50px; height: 50px; border-radius: 4px; margin-right: 15px; }
+        #lyrics-output { margin-top: 20px; white-space: pre-wrap; line-height: 1.7; font-size: 15px; background: #0a0a0a; padding: 20px; border-radius: 12px; display: none; border: 1px solid #222; }
+        .status { color: #888; font-size: 14px; margin-top: 10px; text-align: center; }
+        a { color: #ffff64; }
+    </style>
+</head>
+<body>
+
+<div class="search-box">
+    <h2 style="margin-top:0">Rush Genius Logic</h2>
+    <input type="text" id="songInput" placeholder="Song Name...">
+    <input type="text" id="artistInput" placeholder="Artist Name (Optional)...">
+    <button class="btn-search" onclick="performSearch()">Search</button>
+    <div id="status" class="status"></div>
+    <div id="results"></div>
+</div>
+
+<div id="copy-bar">
+    <button id="copyFull" class="btn-copy" onclick="copy('full')">Copy Full</button>
+    <button id="copyClean" class="btn-copy" onclick="copy('clean')">Copy Clean</button>
+</div>
+
+<div id="lyrics-output"></div>
+
+<script>
+    let rawLyrics = "";
+    // Note: Since browsers block cross-origin scraping, this proxy is necessary for the HTML version
+    const PROXY = "https://cors-anywhere.herokuapp.com/";
+
+    async function performSearch() {
+        const song = document.getElementById('songInput').value;
+        const artist = document.getElementById('artistInput').value;
+        const status = document.getElementById('status');
+        const resultsDiv = document.getElementById('results');
+        
+        if (!song) return;
+
+        status.innerHTML = `Searching... (Ensure <a href="${PROXY}corsdemo" target="_blank">Proxy</a> is active)`;
+        resultsDiv.innerHTML = "";
+        
+        try {
+            // Using the undocumented search endpoint from the Rush logic
+            const query = encodeURIComponent(`${song} ${artist}`);
+            const response = await fetch(`${PROXY}https://genius.com/api/search/multi?q=${query}`);
+            const data = await response.json();
+            
+            // Extracting the "song" section from the multi-search results
+            const songs = data.response.sections.find(s => s.type === "song").hits;
+
+            songs.forEach(hit => {
+                const item = hit.result;
+                const div = document.createElement('div');
+                div.className = 'result-item';
+                div.innerHTML = `
+                    <img src="${item.song_art_image_thumbnail_url}">
+                    <div>
+                        <strong>${item.title}</strong><br>
+                        <span style="color:#888">${item.artist_names}</span>
+                    </div>
+                `;
+                div.onclick = () => getLyrics(item.url);
+                resultsDiv.appendChild(div);
+            });
+            status.innerText = "";
+        } catch (e) {
+            status.innerText = "Error fetching results. Check Proxy access.";
+        }
+    }
+
+    async function getLyrics(url) {
+        const status = document.getElementById('status');
+        const output = document.getElementById('lyrics-output');
+        status.innerText = "Loading Lyrics...";
+        
+        try {
+            const response = await fetch(PROXY + url);
+            const html = await response.text();
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
+
+            // Selecting the lyric containers as per the Rush/Genius scraping logic
+            const containers = doc.querySelectorAll('[data-lyrics-container="true"]');
+            let lyricsText = "";
+
+            if (containers.length > 0) {
+                containers.forEach(c => {
+                    // Replace <br> tags with newlines to maintain formatting
+                    c.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
+                    lyricsText += c.innerText + "\n";
+                });
+            } else {
+                // Fallback for older Genius page layouts
+                lyricsText = doc.querySelector('.lyrics')?.innerText || "Lyrics not found.";
+            }
+
+            rawLyrics = lyricsText.trim();
+            output.innerText = rawLyrics;
+            output.style.display = "block";
+            document.getElementById('copyFull').style.display = "inline-block";
+            document.getElementById('copyClean').style.display = "inline-block";
+            status.innerText = "Lyrics Loaded.";
+        } catch (e) {
+            status.innerText = "Error loading lyrics.";
+        }
+    }
+
+    function copy(mode) {
+        let text = rawLyrics;
+        if (mode === 'clean') {
+            // Removes [Section Headers] and cleans up extra whitespace
+            text = text.replace(/\[.*?\]/g, "\n").replace(/\n\s*\n/g, "\n\n");
+        }
+        
+        navigator.clipboard.writeText(text.trim());
+        alert(`${mode.toUpperCase()} copied to clipboard!`);
+    }
+</script>
+
+</body>
+</html>
